@@ -23,17 +23,6 @@ It is designed with scalability and usability in mind, making it suitable for bo
 
 ---
 
-## 🛠️ Tech Stack
-
-*(Update this based on your project)*
-
-* **Frontend:** HTML / CSS / JavaScript
-* **Backend:** Python / Java / Node.js
-* **Database:** MySQL / MongoDB
-* **Tools:** Git, GitHub
-
----
-
 ## 📂 Project Structure
 
 ```
