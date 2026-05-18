@@ -3,7 +3,7 @@
 <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" />
 <img src="https://img.shields.io/badge/OS%20Scheduling-Algorithms-0078D7?style=for-the-badge&logo=windows&logoColor=white" />
 
-# Enhancing Task Execution in multicore system-The impact of multilevel feedback queue on round robin adaptive priority scheduling algorithm
+# Enhancing Task Execution in multicore system-the impact of MLFQ in round robin adaptive priority scheduling algorithm
 
 **CPU process scheduling simulator — FCFS, Round Robin & MLFQ implemented in Python**
 
@@ -25,30 +25,103 @@ The project is built with a clean object-oriented architecture: a shared `Base` 
 
 ## Scheduling Algorithms
 
-### FCFS — First Come First Served (`fifo.py`)
-Processes are executed in the order they arrive. Non-preemptive. Simple and fair, but can suffer from the convoy effect where short processes wait behind long ones.
+### 1. FCFS — First Come First Served (`fifo.py`)
 
-### Round Robin (`round_robin.py`)
-Each process is given a fixed **time quantum** in turn. If a process doesn't finish within its quantum, it goes back to the queue. Preemptive and fair — ideal for time-sharing systems.
+Non-preemptive. The process that arrives earliest gets the CPU first. Once a process starts, it runs to completion without interruption. Simple but can cause long waiting times if a large process arrives early.
 
-| Queue Level | Time Quantum |
-|-------------|-------------|
-| User-defined | Entered at runtime via `input()` |
+### 2. Round Robin (`round_robin.py`)
 
-### MLFQ — Multi-Level Feedback Queue (`mlfq.py`)
-Processes start in the highest-priority queue (Queue 0) with a short time quantum. If they don't finish, they're moved to a lower-priority queue with a longer quantum. I/O completion resets a process back to Queue 0.
+Preemptive. Each process is given a fixed **time quantum** entered by the user at runtime. If a process doesn't finish within its quantum, it's put back in the ready queue with its `arrival_time` updated to the current time — so it re-enters the queue in arrival order. This continues until all processes complete.
 
-| Queue Level | Time Quantum |
-|-------------|-------------|
-| Queue 0 | 4 units |
-| Queue 1 | 16 units |
-| Queue 2+ | Full remaining burst |
+### 3. MLFQ — Multi-Level Feedback Queue (`mlfq.py`)
+
+The most advanced algorithm. Described in detail below.
+
+---
+
+## How MLFQ Works — In Detail
+
+The Multi-Level Feedback Queue dynamically adjusts each process's priority based on its CPU usage behavior. Processes that use their full time quantum are penalized (moved to a lower-priority queue); processes that complete their CPU burst early or return from I/O are rewarded (reset to the highest-priority queue).
+
+### Queue Structure
+
+Every process starts at **Queue 0** (highest priority) when it first arrives.
+
+| Queue | Time Quantum | Behavior |
+|-------|-------------|----------|
+| Queue 0 | 4 units | Short quantum — favors interactive/short processes |
+| Queue 1 | 16 units | Longer quantum — for processes that needed more CPU |
+| Queue 2+ | Full remaining burst | Non-preemptive — process runs to completion |
+
+### Selection Rule
+
+At every scheduling decision, the scheduler picks the process with the **lowest queue number**. If two processes are in the same queue, the one with the **earlier arrival time** wins. This is implemented as:
+
+```python
+def select(self, processes):
+    return min(processes, key=lambda a: a['queue'] * 1000000 + a["arrival_time"])
+```
+
+Multiplying queue by `1,000,000` ensures queue level always takes priority over arrival time.
+
+### Demotion — `on_cpu()`
+
+If a process **does not finish** within its time quantum (i.e., `cpu_time1` is still > 0 after the burst), it is **demoted** — its queue number is incremented by 1:
+
+```python
+def on_cpu(self, process):
+    process['queue'] += 1
+```
+
+This means the process used its full quantum without completing, indicating it is CPU-intensive. It gets a longer quantum next time but at lower priority.
+
+### Promotion — `on_io()`
+
+If a process **completes its first CPU burst** and goes to I/O (i.e., `cpu_time1` reaches 0 and `io_time` > 0), it is **reset to Queue 0** when it returns:
+
+```python
+def on_io(self, process):
+    process['queue'] = 0
+```
+
+This rewards I/O-bound processes by treating them as high-priority again after they return from I/O — because they voluntarily gave up the CPU.
+
+### Step-by-Step Execution Flow
+
+```
+Process arrives → assigned Queue 0
+        │
+        ▼
+  Gets CPU for 4 units (Queue 0 quantum)
+        │
+        ├── Finishes cpu_time1? ──YES──► Goes to I/O → on_io() → queue = 0 (reset)
+        │                                Returns from I/O → back to Queue 0
+        │
+        └── Still has cpu_time1? ─NO──► on_cpu() → queue += 1 (demoted to Queue 1)
+                │
+                ▼
+        Gets CPU for 16 units (Queue 1 quantum)
+                │
+                ├── Finishes? ──YES──► Process ends
+                │
+                └── Still running? ──► on_cpu() → queue += 1 (demoted to Queue 2+)
+                        │
+                        ▼
+                Gets full remaining burst (runs to completion)
+```
+
+### Why This Is Powerful
+
+- **Short processes** finish quickly in Queue 0 — low waiting time
+- **I/O-bound processes** keep resetting to Queue 0 — always high priority
+- **CPU-intensive processes** gradually sink to lower queues — don't starve short ones
+- **No starvation** — every process eventually gets CPU time in Queue 2+
 
 ---
 
 ## Metrics Reported
 
-After each simulation, the following are printed for every process and as averages:
+After each simulation, the following are printed per process and as averages:
 
 | Metric | Description |
 |--------|-------------|
@@ -84,13 +157,20 @@ enchancing-task-execution/
 └── 📄 README.md         # This file
 ```
 
-### Architecture
+### Class Architecture
 
 ```
-Base (base.py)
-├── FCFS        — overrides select() → earliest arrival_time
-├── RoundRobin  — overrides select() + get_cpu_burst() → fixed time quantum
-└── MLFQ        — overrides select(), get_cpu_burst(), on_cpu(), on_io() → feedback queues
+Base (base.py)  ←  core run loop, timing, idle tracking, metrics
+│
+├── FCFS        — select(): picks earliest arrival_time
+│
+├── RoundRobin  — select(): picks earliest arrival_time
+│                 get_cpu_burst(): returns fixed user-defined quantum
+│
+└── MLFQ        — select(): picks lowest queue, then earliest arrival_time
+                  get_cpu_burst(): 4 (Q0) / 16 (Q1) / full burst (Q2+)
+                  on_cpu(): queue += 1  (demote on timeout)
+                  on_io():  queue  = 0  (promote on I/O completion)
 ```
 
 ---
@@ -98,10 +178,6 @@ Base (base.py)
 ## Input Format
 
 Processes are defined in `input.csv` with the following columns:
-
-```
-process_id, arrival_time, cpu_time1, io_time, cpu_time2
-```
 
 | Column | Description |
 |--------|-------------|
@@ -166,27 +242,28 @@ python mlfq.py
 ```
 P5: 0 -> 4
 P4: 4 -> 7
-P3: 7 -> 12
-P6: 12 -> 15
-P1: 15 -> 19
-P2: 19 -> 25
+P3: 7 -> 11
+P6: 11 -> 14
+P1: 14 -> 18
+P2: 18 -> 22
+P3: 22 -> 23
 
 +===================+===================+===================+===================+===================+
-|                                       FCFS                                                        |
+|                                       MLFQ                                                        |
 +===================+===================+===================+===================+===================+
 |    Process ID     |     Start-End     |  Turn Around Time |   Response Time   |   Waiting Time    |
 +-------------------+-------------------+-------------------+-------------------+-------------------+
-|        P1         |   15      -    19 |        16         |        12         |        12         |
+|        P1         |   14      -    18 |        15         |        11         |        11         |
 +-------------------+-------------------+-------------------+-------------------+-------------------+
-|        P2         |   19      -    25 |        21         |        15         |        15         |
+|        P2         |   18      -    22 |        18         |        14         |        14         |
 +-------------------+-------------------+-------------------+-------------------+-------------------+
-|      Average      |                   |       13.67       |        9.50       |        9.50       |
+|      Average      |                   |       12.17       |        8.00       |        8.00       |
 +-------------------+-------------------+-------------------+-------------------+-------------------+
 
-Total Time: 25
+Total Time: 23
 Idle Time: 0
 CPU Utilization: 1.00
-Throughput: 0.24
+Throughput: 0.26
 ```
 
 ---
@@ -196,6 +273,7 @@ Throughput: 0.24
 - Process scheduling and the ready queue
 - Preemptive vs. non-preemptive scheduling
 - CPU burst and I/O burst modeling
+- Priority-based queue demotion and promotion
 - Turnaround time, response time, and waiting time calculations
 - CPU utilization and throughput as performance metrics
 - Object-oriented design with inheritance and method overriding
