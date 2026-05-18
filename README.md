@@ -2,7 +2,6 @@
 
 <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" />
 <img src="https://img.shields.io/badge/OS%20Scheduling-Algorithms-0078D7?style=for-the-badge&logo=windows&logoColor=white" />
-<img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" />
 
 # Enhancing Task Execution in multicore system-The impact of multilevel feedback queue on round robin adaptive priority scheduling algorithm
 
